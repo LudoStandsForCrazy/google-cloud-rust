@@ -157,6 +157,7 @@ impl Subscriber {
         });
 
         let inner = tokio::spawn(async move {
+            let mut cancel_retry = 0;
             tracing::trace!("start subscriber: {}", subscription);
             let retryable_codes = match &config.retry_setting {
                 Some(v) => v.codes.clone(),
@@ -177,6 +178,12 @@ impl Subscriber {
                     Ok(r) => r.into_inner(),
                     Err(e) => {
                         if e.code() == Code::Cancelled {
+                            if cancel_retry < 5 {
+                                cancel_retry += 1;
+                                tracing::warn!("failed to start streaming: will reconnect {:?} : {}", e, subscription);
+                                tokio::time::sleep(Duration::from_millis(1000)).await;
+                                continue;
+                            }
                             tracing::trace!("stop subscriber : {}", subscription);
                             break;
                         } else if retryable_codes.contains(&e.code()) {
